@@ -80,7 +80,11 @@ def sign_up_with_password(email: str, password: str) -> Dict[str, Any]:
     if err:
         return {'error': err}
     try:
-        resp = get_client().auth.sign_up({'email': email, 'password': password})
+        resp = get_client().auth.sign_up({
+            'email': email,
+            'password': password,
+            'options': {'email_redirect_to': OAUTH_REDIRECT_URL},
+        })
         if resp.session and resp.user:
             return _session_dict(resp.session, resp.user)
         if resp.user:

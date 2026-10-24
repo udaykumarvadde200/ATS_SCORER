@@ -92,7 +92,7 @@ async def get_user_history(user_id: str) -> List[Dict]:
             return results
     except Exception as exc:
         logger.error(f"Failed to fetch history from Supabase: {exc}")
-        return []
+        raise
 
 async def delete_analysis(analysis_id: str, user_id: str) -> bool:
     headers = _get_headers()
@@ -112,7 +112,7 @@ async def delete_analysis(analysis_id: str, user_id: str) -> bool:
                 }
             )
             response.raise_for_status()
-            return True
+            return bool(response.json())
     except Exception as exc:
         logger.error(f"Failed to delete analysis {analysis_id}: {exc}")
         return False

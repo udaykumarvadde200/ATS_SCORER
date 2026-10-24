@@ -222,12 +222,12 @@ def analyze_issues(
     #6. Weak Action Verbs 
     description_lines = [
         line.strip()
-        for exp in exp_entries
-        for line in exp.get('description', '').split('\n')
+        for source in (exp_entries + proj_entries)
+        for line in (source.get('description') or '').split('\n')
         if line.strip()
     ]
 
-    if len(description_lines) > 3 and len(action_verbs) < 3:
+    if len(description_lines) > 3 and len(action_verbs) < 5:
         detected.append(IssueDetail(
             issue_title="Bullet Points Lack Strong Action Verbs",
             severity_level="Moderate",
@@ -262,16 +262,18 @@ def analyze_issues(
         ))
 
     #7. No Quantifiable Achievements 
-    number_pattern = r'\d+[%+]?|\$\d+'
-    has_metrics = bool(re.findall(number_pattern, experience_text)) if experience_text else False
+    number_pattern = r'\d+\s*%|\$\d+|\d+[kKmMbB]\b|\d+\+?\s*(?:users|customers|clients|projects|hours|days|months|years|records|requests)'
+    project_text = ' '.join((p.get('description') or '') for p in proj_entries)
+    content_text = f"{experience_text} {project_text}".strip()
+    has_metrics = bool(re.findall(number_pattern, content_text)) if content_text else False
 
-    if experience_text and not has_metrics:
+    if content_text and not has_metrics:
         detected.append(IssueDetail(
             issue_title="No Quantifiable Achievements Found",
             severity_level="Moderate",
             ats_impact="Medium",
             explanation=(
-                "Your experience section does not contain any measurable outcomes "
+                "Your experience and project sections do not contain any measurable outcomes  "
                 "(numbers, percentages, or dollar amounts). Quantified achievements "
                 "make your impact concrete and are strongly preferred by recruiters."
             ),
@@ -285,8 +287,8 @@ def analyze_issues(
                 "Go through each bullet point and ask: 'How much?', 'How many?', 'By what %?'",
                 "Add metrics: users served, requests/day, % improvement, team size, time saved",
                 "Examples: '500+ daily users', 'reduced load time by 40%', 'handled 10K API calls/day'",
-                "If exact numbers aren't known, use reasonable estimates (e.g., '~200 users')",
-                "Aim for numbers in at least 50% of your experience bullets",
+                "Only use numbers you can back up. If you have no usage figures, use verifiable facts like dataset size, number of models compared, accuracy, or latency",
+                "Aim for numbers in at least 50% of your experience and project  bullets",
             ],
             example_improvement=(
                 "Before:\n"

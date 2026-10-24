@@ -37,7 +37,9 @@ tailored tested tracked trained transformed translated troubleshot tuned uncover
 updated upgraded utilized validated verified visualized won wrote
 analyze automate collaborate conduct configure contribute coordinate create deliver deploy develop
 enhance establish evaluate execute implement improve integrate maintain manage migrate optimize
-organize perform provide reduce refactor resolve streamline troubleshoot write
+organize perform provide reduce refactor resolve streamline troubleshoot write developing building designing implementing creating managing optimizing analyzing automating deploying
+integrating improving reducing streamlining collaborating evaluating delivering maintaining architecting
+orchestrating migrating refactoring
 """.split())
 
 _BULLET_GLYPHS = re.compile("[\u2022\u25cf\u25aa\u25e6\u2023\u00b7\uf0b7\uf0a7]")

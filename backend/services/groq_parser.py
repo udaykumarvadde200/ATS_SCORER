@@ -68,7 +68,9 @@ RESUME_USER_PROMPT = """Extract the following from this resume and return as JSO
 
 Important instructions:
 - For duration_months, calculate the number of months between start_date and end_date. If end_date is "Present" or "Current", calculate from start_date to now.
-- For skills, extract ALL technical and soft skills mentioned anywhere in the resume.
+- For skills, extract only specific technical skills: programming languages, frameworks, 
+  libraries, tools, platforms, databases, and named technical concepts (for example Python, FastAPI, SQL, Neural Networks). 
+  Do NOT include soft skills or generic phrases such as problem-solving, communication, teamwork, hands-on experience, or job-title phrases.
 - For action_verbs, find verbs that start bullet points or describe achievements.
 - For keywords, extract noun phrases and technical terms relevant to ATS matching.
 - Return ONLY valid JSON. No markdown code fences, no explanation.

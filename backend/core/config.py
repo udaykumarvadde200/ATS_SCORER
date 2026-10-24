@@ -17,7 +17,7 @@ APP_VERSION='1.0.0'
 APP_DESCRIPTION='analyse resumes against job description using nlp + ml'
 
 ALLOWED_ORIGINS = [
-    'https://appapppy-ktwxupi73vqhjzweksze9d.streamlit.app/'
+    'https://appapppy-ktwxupi73vqhjzweksze9d.streamlit.app'
 ]  
 
 #file 
@@ -27,11 +27,10 @@ MAX_FILE_SIZE_BYTES=MAX_FILE_SIZE_MB*1024*1024
 #Supported MIME types and their short names
 SUPPORTED_MIME_TYPES = {
     'application/pdf': 'pdf',
-    'application/msword': 'doc',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
 }
 
-SUPPORTED_EXTENSIONS = {'.pdf', '.doc', '.docx'}
+SUPPORTED_EXTENSIONS = {'.pdf', '.docx'}
 
 SPACY_MODEL_PRIMARY="en_core_web_md" #better accuracy
 SPACY_MODEL_SECONDARY='en_core_web_sm' 
@@ -51,5 +50,3 @@ SUPABASE_KEY       = os.getenv('SUPABASE_KEY', '')          # service_role — D
 SUPABASE_ANON_KEY  = os.getenv('SUPABASE_ANON_KEY', '')     # public anon — frontend auth calls
 SUPABASE_JWT_SECRET= os.getenv('SUPABASE_JWT_SECRET', '')   # used by backend to verify access tokens
 GROQ_API_KEY       = os.getenv('GROQ_API_KEY', '')
-
-

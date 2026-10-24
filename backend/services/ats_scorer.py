@@ -8,7 +8,13 @@ from backend.utils.file_utils import log_warning
 from backend.core.config import SENTENCE_TRANSFORMER_MODEL
 from backend.utils.matching import fuzzy_match_keywords
 
-ZIP_CODE_PATTERN = r'\b\d{5}(?:-\d{4})?\b'
+# A bare 5-digit number is NOT a ZIP code: it also matches chunks of phone numbers
+# ("98765 43210") and metrics ("10000 records"). Require a clear postal context.
+ZIP_CODE_PATTERN = (
+    r'\b[A-Z]{2},?\s+\d{5}(?:-\d{4})?\b'                          # CA 94105
+    r'|\b(?:PIN|Pin|pin|ZIP|Zip|zip)(?:\s*code)?[\s:.\-]*\d{5,6}\b'    # PIN 500081
+    r'|\b[A-Z][a-z]{2,}\s*[-,]\s*[1-9]\d{5}\b'                       # Hyderabad - 500081
+)
 
 STREET_ADDRESS_PATTERN = (
     r'\b\d+\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+'
@@ -47,10 +53,11 @@ def detect_location_info(text: str, nlp: spacy.Language) -> Dict:
         privacy_risk, penalty = 'high', 5.0
     elif has_address or has_zip:
         privacy_risk, penalty = 'high', 4.0
-    elif len(locations) > 3:
-        privacy_risk, penalty = 'medium', 3.0
+    elif len({loc['text'].lower() for loc in locations}) > 3:
+        privacy_risk, penalty = 'medium', 2.0
     elif locations:
-        privacy_risk, penalty = 'low', 2.0
+        # "City, State" in the header is normal and recommended: no penalty.
+        privacy_risk, penalty = 'low', 0.0
     else:
         privacy_risk, penalty = 'none', 0.0
 
@@ -89,12 +96,26 @@ def _calculate_semantic_similarity(skill: str, text: str, embedder: SentenceTran
         log_warning(f"Similarity error for '{skill}': {e}", context='ats_scorer')
         return 0.0
 
+def _skill_in_text(skill: str, text: str) -> bool:
+    """Whole-token match, so 'C' or 'R' don't match every word containing that
+    letter, and 'Java' doesn't match 'JavaScript'. Handles C++, C#, Node.js."""
+    s = skill.strip().lower()
+    if not s:
+        return False
+    pattern = r'(?<![a-z0-9+#])' + re.escape(s) + r'(?![a-z0-9+#])'
+    return re.search(pattern, text.lower()) is not None
+
+
 def _skill_matches(skill: str, text: str, embedder: SentenceTransformer, threshold: float) -> Tuple[bool, float]:
 
-    #fast, o(n) directly check if skill is a substring of the text (case-insensitive)
-    if skill.lower() in text.lower():
+    # fast path: exact whole-token match
+    if _skill_in_text(skill, text):
         return True, 1.0
-    
+
+    # embeddings of 1-2 character skills are meaningless
+    if len(skill.strip()) <= 2:
+        return False, 0.0
+
     #slow, semantic similarity check using sentence embeddings
     sim = _calculate_semantic_similarity(skill, text, embedder)
     return sim >= threshold, sim
@@ -242,8 +263,13 @@ def _calc_content_score(
     achievement_count = sum(len(re.findall(p, text, re.IGNORECASE)) for p in number_patterns)
     score += _tier_score(achievement_count, [(10,5.0),(7,4.0),(5,3.0),(3,2.0),(1,1.0)])
 
-    grammar_penalty = grammar_results.get('penalty_applied', 0.0)
-    score += max(0.0, 10.0 - grammar_penalty / 2.0)
+    if grammar_results.get('_component_status') == 'unavailable':
+        # No grammar checker is wired up, so don't hand out 10 free points.
+        # Rescale the 15 points we can actually measure to the full 25.
+        score = score * 25.0 / 15.0
+    else:
+        grammar_penalty = grammar_results.get('penalty_applied', 0.0)
+        score += max(0.0, 10.0 - grammar_penalty / 2.0)
 
     return min(25.0, max(0.0, score))
 
@@ -320,13 +346,11 @@ def calculate_overall_score(
     skill_validation_pct  = (skill_validation_score  / COMPONENT_MAX['skill_validation'])  * 100.0
     ats_compatibility_pct = (ats_compatibility_score / COMPONENT_MAX['ats_compatibility']) * 100.0
 
-    skills_keywords_pct = (keywords_pct * 0.6) + (skill_validation_pct * 0.4)
-
+    # Overall = sum of the five displayed components (20+25+25+15+15 = 100), so the
+    # headline score always matches the breakdown (and the weights on the landing page).
     base_score = (
-        skills_keywords_pct   * 0.40 +
-        content_pct           * 0.30 +
-        formatting_pct        * 0.15 +
-        ats_compatibility_pct * 0.15
+        formatting_score + keywords_score + content_score
+        + skill_validation_score + ats_compatibility_score
     )
 
     penalties = {}
@@ -347,7 +371,8 @@ def calculate_overall_score(
         bonuses['good_skill_validation'] = 1.0
         score += 1.0
 
-    if grammar_results.get('total_errors', 0) == 0:
+    if (grammar_results.get('total_errors', 0) == 0
+            and grammar_results.get('_component_status') != 'unavailable'):
         bonuses['perfect_grammar'] = 1.0
         score += 1.0
 
@@ -400,7 +425,8 @@ def generate_strengths(
         strengths.append(f' {pct:.0f}% of skills are validated by projects')
     if score_results['ats_compatibility_score'] >= 13:
         strengths.append(' Excellent ATS compatibility with clean formatting')
-    if grammar_results.get('total_errors', 0)   == 0:
+    if (grammar_results.get('total_errors', 0) == 0
+            and grammar_results.get('_component_status') != 'unavailable'):
         strengths.append(' Error-free grammar and spelling')
 
     if not strengths:

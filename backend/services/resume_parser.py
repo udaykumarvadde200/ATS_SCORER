@@ -22,9 +22,6 @@ from backend.core.config import (
     SUPPORTED_MIME_TYPES
 )
 
-class FileParsingError(Exception):
-    pass
-
 class FileValidationError(Exception):
     pass
 
@@ -38,7 +35,7 @@ def validate_file(file_data:bytes, filename:str)->Tuple[bool, str, Optional[str]
         ), None
     
     if file_size_bytes==0:
-        return False, 'uploade file is empty...please check the file you have uploaded and try again'
+        return False, 'Uploaded file is empty. Please check the file and try again.', None
     
     try:
         mime_type=magic.from_buffer(file_data, mime=True)
@@ -46,7 +43,7 @@ def validate_file(file_data:bytes, filename:str)->Tuple[bool, str, Optional[str]
         return False, f"error deteminin the file type : {e}", None
     
     if mime_type not in SUPPORTED_MIME_TYPES:
-        supported=', '.join(SUPPORTED_MIME_TYPES.keys()).upper()
+        supported=', '.join(sorted(set(SUPPORTED_MIME_TYPES.values()))).upper()
         return False, (
             f'Unsupported file type: {mime_type}. '
             f'Please upload one of: {supported}.'

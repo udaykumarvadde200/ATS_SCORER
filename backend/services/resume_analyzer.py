@@ -6,7 +6,7 @@ from backend.services.groq_parser import parse_resume, parse_job_description
 from backend.services.jd_matcher import compare_resume_with_jd
 from backend.services.feedback_engine import analyze_issues, generate_issues_summary
 from backend.services.ats_scorer import calculate_overall_score, validate_skills_with_projects
-
+from backend.utils.action_verbs import detect_action_verbs
 
 def analyze_full_resume(
     resume_text: str,
@@ -24,8 +24,8 @@ def analyze_full_resume(
     skills          = parsed_resume.get('skills', [])
     projects        = parsed_resume.get('projects', [])
     keywords        = parsed_resume.get('keywords', [])
-    action_verbs    = parsed_resume.get('action_verbs', [])
-
+    action_verbs    = detect_action_verbs(resume_text)
+    
     experience_months = sum(
         int(e.get('duration_months', 0))
         for e in parsed_resume.get('experience', [])
@@ -104,8 +104,9 @@ def analyze_full_resume(
     skill_validation_details = {
         "validated": [
             {
-                "skill":    item['skill'],
-                "projects": item.get('projects', []),
+                "skill":      item['skill'],
+                "projects":   item.get('projects', []),
+                "similarity": item.get('similarity'),
             }
             for item in validated_raw
         ],

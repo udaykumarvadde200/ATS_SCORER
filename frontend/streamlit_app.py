@@ -94,6 +94,10 @@ with st.sidebar:
             supabase_client.sign_out()
             for k in ("access_token", "refresh_token", "user_id", "user_email"):
                 st.session_state[k] = None
+            # Clear cached results so the next visitor on this session
+            # can't see the previous user's analysis or PDF.
+            for k in ("scorer_analysis", "scorer_pdf_bytes"):
+                st.session_state.pop(k, None)
             st.rerun()
     else:
         # Signed-out state: tabs for sign-in vs sign-up + Google OAuth button.

@@ -42,3 +42,9 @@ PyJWT[crypto]>=2.8           # verifies Supabase access tokens (HS256)
 streamlit>=1.32
 requests>=2.31
 supabase>=2.4                # frontend auth client (email/password + OAuth)
+
+
+
+beautifulsoup4>=4.12         # used by the PDF fallback renderer
+reportlab>=4.0               # PDF fallback when WeasyPrint is unavailable
+python-magic-bin>=0.4.14; sys_platform == "win32"   # libmagic for Windows only

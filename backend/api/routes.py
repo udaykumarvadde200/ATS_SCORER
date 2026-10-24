@@ -2,6 +2,7 @@ import logging
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 
 from backend.api.auth import get_current_user
 from backend.models.schemas import AnalysisResponse, ComponentScores, JDComparison, SkillValidationDetails
@@ -15,10 +16,61 @@ logger = logging.getLogger('ats_resume_scorer')
 
 router = APIRouter(prefix='/api/v1', tags=['Analysis'])
 
+
 def _clean(text: str) -> str:
     for prefix in ('✅', '🌟', '❌', '⚠️', '📝', '🔴', '🟡', '🟢', '🟠', '👍'):
         text = text.lstrip(prefix)
     return text.strip()
+
+
+def _fb_field(fb, name: str) -> str:
+    """Read a field from an IssueDetail that may be a dict or a Pydantic object."""
+    if isinstance(fb, dict):
+        return fb.get(name) or ''
+    return getattr(fb, name, '') or ''
+
+
+_SEVERITY_ALIASES = {'moderate': 'medium', 'info': 'low'}
+
+
+def _normalize_feedback(detailed_fb) -> list:
+    """feedback_engine emits 'High' / 'Moderate' / 'Low'. The UI and PDF expect
+    lowercase critical/high/medium/low; 'moderate' used to be dropped from the
+    Detailed Feedback page entirely."""
+    normalized = []
+    for fb in detailed_fb:
+        data = dict(fb) if isinstance(fb, dict) else fb.model_dump()
+        level = (data.get('severity_level') or 'low').lower()
+        data['severity_level'] = _SEVERITY_ALIASES.get(level, level)
+        normalized.append(data)
+    return normalized
+
+
+def _critical_issue_titles(detailed_fb) -> List[str]:
+    return [
+        _fb_field(fb, 'issue_title')
+        for fb in detailed_fb
+        if _fb_field(fb, 'severity_level').lower() in ('critical', 'high')
+        and _fb_field(fb, 'issue_title')
+    ]
+
+
+def _build_suggestions(detailed_fb, limit: int = 8) -> List[str]:
+    """Short list of 'how to fix' tips, most severe issues first, no duplicates."""
+    rank = {'critical': 0, 'high': 1, 'medium': 2, 'moderate': 2, 'low': 3}
+    ordered = sorted(
+        detailed_fb,
+        key=lambda fb: rank.get(_fb_field(fb, 'severity_level').lower(), 99),
+    )
+    suggestions: List[str] = []
+    for fb in ordered:
+        tip = _fb_field(fb, 'how_to_fix').strip()
+        if tip and tip not in suggestions:
+            suggestions.append(tip)
+        if len(suggestions) >= limit:
+            break
+    return suggestions
+
 
 @router.post('/analyze-resume', response_model=AnalysisResponse)
 async def analyze_resume(
@@ -29,14 +81,12 @@ async def analyze_resume(
 ):
     warnings: List[str] = []
 
-
-    nlp      = request.app.state.nlp
+    nlp = request.app.state.nlp
     embedder = request.app.state.embedder
-
 
     try:
         file_bytes = await resume.read()
-        filename   = resume.filename or 'resume'
+        filename = resume.filename or 'resume'
 
         from backend.services.resume_parser import (
             FileParsingError,
@@ -44,7 +94,9 @@ async def analyze_resume(
             parse_resume_file,
         )
 
-        resume_text, _metadata = parse_resume_file(file_bytes, filename)
+        resume_text, _metadata = await run_in_threadpool(
+            parse_resume_file, file_bytes, filename
+        )
         logger.info(f"Parsed '{filename}': {len(resume_text)} chars extracted")
 
     except Exception as exc:
@@ -54,23 +106,24 @@ async def analyze_resume(
             detail=f'Could not read or parse the resume: {exc}',
         )
 
-    #Full Analysis Pipeline 
+    # Full analysis pipeline.
+    # It makes blocking calls (Groq, embeddings, spaCy), so run it in a worker
+    # thread; otherwise one analysis freezes every other request.
     try:
         from backend.services.resume_analyzer import analyze_full_resume
-        
-        result = analyze_full_resume(
+
+        result = await run_in_threadpool(
+            analyze_full_resume,
             resume_text=resume_text,
             nlp=nlp,
             embedder=embedder,
-            job_description=job_description
+            job_description=job_description,
         )
     except Exception as exc:
         logger.error(f'Full analysis pipeline failed: {exc}')
         raise HTTPException(status_code=500, detail=f'Analysis pipeline failed: {exc}')
 
-    from backend.models.schemas import ComponentScores
-
-    #Extract jd_comparison details
+    # Extract jd_comparison details
     jd_comparison_result = None
     if result.get('jd_comparison'):
         jd_comparison_result = JDComparison(
@@ -81,18 +134,22 @@ async def analyze_resume(
             skills_gap=result['jd_comparison'].get('skills_gap', [])[:10],
         )
 
-    # Convert detailed_feedback objects from prediction into what schema expects
-    detailed_fb = result.get('detailed_feedback', [])
-    
+    detailed_fb = _normalize_feedback(result.get('detailed_feedback', []) or [])
 
     svd_raw = result.get('skill_validation_details') or {}
     skill_val_details = SkillValidationDetails(
-        validated       = svd_raw.get('validated', []),
-        unvalidated     = svd_raw.get('unvalidated', []),
-        total           = svd_raw.get('total', 0),
-        validated_count = svd_raw.get('validated_count', 0),
-        validation_pct  = svd_raw.get('validation_pct', 0.0),
+        validated=svd_raw.get('validated', []),
+        unvalidated=svd_raw.get('unvalidated', []),
+        total=svd_raw.get('total', 0),
+        validated_count=svd_raw.get('validated_count', 0),
+        validation_pct=svd_raw.get('validation_pct', 0.0),
     )
+
+    # Fields the frontend reads directly. These were previously never sent,
+    # which left Strengths / Critical Issues / Recommendations empty.
+    strengths = result.get('strengths', []) or []
+    critical_issues = _critical_issue_titles(detailed_fb)
+    suggestions = _build_suggestions(detailed_fb)
 
     response = AnalysisResponse(
         ATS_score=result['ats_score'],
@@ -109,26 +166,34 @@ async def analyze_resume(
         matched_keywords=result.get('matched_keywords', []),
         skills=list(result.get('skills', [])[:20]),
         jd_comparison=jd_comparison_result,
-        interpretation=result.get('interpretation', '')
+        interpretation=result.get('interpretation', ''),
+
+        strengths=strengths,
+        critical_issues=critical_issues,
+        suggestions=suggestions,
+        warnings=warnings,
     )
 
-
+    # Save what the user actually sees, so History and its PDF match the
+    # live result (strengths etc. included).
     try:
         from backend.database.supabase_db import save_analysis
-        await save_analysis(user_id, filename, result)
+        await save_analysis(user_id, filename, response.model_dump())
     except Exception as exc:
         logger.warning(f'History save failed (non-blocking): {exc}')
 
     return response
 
+
 @router.get('/health')
 async def health_check(request: Request):
     """Health check — confirms models are loaded and the API is ready."""
     return {
-        'status':          'healthy',
-        'nlp_loaded':      request.app.state.nlp is not None,
+        'status': 'healthy',
+        'nlp_loaded': request.app.state.nlp is not None,
         'embedder_loaded': request.app.state.embedder is not None,
     }
+
 
 @router.get('/history')
 async def get_history(user_id: str = Depends(get_current_user)):
@@ -158,7 +223,7 @@ async def delete_history_entry(
     except Exception as exc:
         logger.error(f'History delete failed: {exc}')
         raise HTTPException(status_code=500, detail=f'Could not delete: {exc}')
-    
+
 
 @router.post('/generate-pdf')
 async def generate_pdf(
@@ -171,7 +236,7 @@ async def generate_pdf(
 
     try:
         html_docs = generate_html_reports(data.model_dump())
-        pdf_bytes = generate_combined_pdf(html_docs)
+        pdf_bytes = await run_in_threadpool(generate_combined_pdf, html_docs)
 
         return Response(
             content=pdf_bytes,
@@ -183,7 +248,7 @@ async def generate_pdf(
     except Exception as e:
         logger.error(f'Failed to generate PDF: {e}')
         raise HTTPException(status_code=500, detail=f"Failed to generate PDF: {e}")
-    
+
 
 @router.get('/history/{analysis_id}/pdf')
 async def generate_history_pdf(
@@ -203,7 +268,7 @@ async def generate_history_pdf(
 
     try:
         html_docs = generate_html_reports(analysis_data)
-        pdf_bytes = generate_combined_pdf(html_docs)
+        pdf_bytes = await run_in_threadpool(generate_combined_pdf, html_docs)
 
         return Response(
             content=pdf_bytes,

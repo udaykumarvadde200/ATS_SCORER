@@ -1,102 +1,138 @@
 # ATS Resume Scorer
 
-A web app that scores how well a resume matches a job description and returns actionable feedback. Built with FastAPI + Streamlit, using spaCy and Sentence Transformers for NLP and the Groq API for LLM-generated suggestions.
+An AI-assisted resume analyzer that scores a resume out of 100 the way an Applicant Tracking System might, explains where points were lost, compares the resume against a job description, and exports a PDF report.
 
-## What it does
+**Live demo:** `<your-streamlit-app-url>`  
+**Backend API docs:** `<your-backend-url>/docs`
 
-1. Upload a resume (PDF / DOC / DOCX) and paste a job description.
-2. The backend parses the resume, extracts skills and experience, and compares them to the JD using semantic similarity.
-3. You get an ATS score, a breakdown by category (formatting, keywords, content, skill validation, ATS compatibility), and LLM-written suggestions for what to improve.
-4. Past analyses are saved to your account so you can revisit them.
+<!-- Add 1-2 screenshots here: the score breakdown and the JD comparison page. -->
+<!-- ![Score breakdown](docs/score-breakdown.png) -->
 
-## Tech stack
+## Features
 
-- **Frontend:** Streamlit
-- **Backend:** FastAPI (Python)
-- **NLP:** spaCy (`en_core_web_md`), Sentence Transformers (`all-MiniLM-L6-v2`)
-- **LLM:** Groq API (Llama 3)
-- **Auth + Database:** Supabase (email/password and Google OAuth)
-- **PDF report export:** WeasyPrint + Jinja2
+- Upload a PDF or DOCX resume (5 MB max, file type checked by content, not just extension)
+- Structured parsing with an LLM (Groq) into skills, experience, education, projects, keywords and action verbs
+- Score out of 100 built from five weighted components:
 
-## Project structure
+| Component | Max points | What it checks |
+|---|---|---|
+| Formatting | 20 | Sections present, contact details, length and structure |
+| Keywords & Skills | 25 | Keyword and skill coverage, matched with fuzzy matching and aliases (for example `ReactJS` = `react`) |
+| Content Quality | 25 | Action verbs, quantified achievements, summary quality |
+| Skill Validation | 15 | Whether each listed skill is backed up by a project or job description |
+| ATS Compatibility | 15 | Whether the file can be parsed cleanly by an ATS |
+
+- Optional job description comparison: matched and missing keywords, with the score adjusted up or down
+- Detailed feedback with specific issues and prioritized recommendations
+- PDF report export
+- Sign-in with Supabase; each user gets a private history of past analyses
+
+## Architecture
 
 ```
-ATS_SCORER/
-├── backend/              FastAPI app, NLP services, API routes
-├── frontend/             Streamlit app, views, components
-├── jupyter notebooks/    Research and dataset prep (not used at runtime)
-├── ml model/             Exported ML artifacts
-├── requirements.txt      Combined backend + frontend dependencies
-└── .env.example          Template for environment variables
+ Streamlit frontend  --(HTTPS, JWT)-->  FastAPI backend  --> Groq LLM (resume parsing)
+ (views, components)                    |                --> spaCy + sentence-transformers (NLP)
+        |                               |                --> Jinja2 + WeasyPrint / ReportLab (PDF)
+        +-- Supabase Auth               +--> Supabase (Postgres) for analysis history
 ```
 
-## Setup
+```
+backend/
+  api/        routes and JWT auth
+  core/       configuration
+  database/   Supabase REST client
+  models/     Pydantic schemas
+  services/   parsing, scoring, JD matching, feedback, recommendations, PDF export
+  templates/  HTML templates for PDF reports
+  utils/      file validation, fuzzy keyword matching
+frontend/
+  views/      landing, scorer, history, resources pages
+  components/ score display, feedback, recommendations, JD comparison
+  services/   API client, Supabase auth client
+jupyter notebooks/   exploratory work (EDA, BERT embeddings, fine-tuning)
+tests/               unit tests for keyword matching
+```
 
-### 1. Clone and create a virtual environment
+## How the score is computed
+
+1. The file is validated (type, size) and its text is extracted (pdfplumber, with PyPDF2 and python-docx as fallbacks).
+2. Groq parses the text into structured data. The parser output is validated and cleaned before scoring.
+3. Each component is scored separately, so the breakdown tells the user exactly where points were lost.
+4. Skill validation checks every listed skill against project and experience text, using exact whole-word matches first and sentence-embedding similarity (`all-MiniLM-L6-v2`) as a fallback.
+5. If a job description is provided, its keywords are compared with the resume using alias normalization and fuzzy matching, and the overall score is adjusted.
+
+## Run locally
+
+Requirements: Python 3.10+.
 
 ```bash
-git clone <repo-url>
-cd ATS_SCORER
-python -m venv venv
-source venv/bin/activate         # Windows: venv\Scripts\activate
-```
-
-### 2. Install dependencies
-
-```bash
+git clone <your-repo-url>
+cd ai-resume-ats-main
+python -m venv .venv
+.venv\Scripts\activate        # Windows (use: source .venv/bin/activate on macOS/Linux)
 pip install -r requirements.txt
 python -m spacy download en_core_web_md
 ```
 
-WeasyPrint needs system libraries on Linux:
+Copy `.env.example` to `.env` and fill in your values:
 
-```bash
-# Fedora
-sudo dnf install -y cairo pango gdk-pixbuf2 libffi
-
-# Debian / Ubuntu
-sudo apt install -y libcairo2 libpango-1.0-0 libpangoft2-1.0-0 libffi-dev
+```
+GROQ_API_KEY=
+SUPABASE_URL=
+SUPABASE_KEY=            # service_role key, backend only
+SUPABASE_ANON_KEY=       # public anon key, used for sign-in
+SUPABASE_JWT_SECRET=
 ```
 
-### 3. Configure environment variables
+For the frontend, create `frontend/.streamlit/secrets.toml`:
 
-Copy the template and fill in your keys:
-
-```bash
-cp .env.example .env
+```toml
+[backend]
+url = "http://localhost:8000"
 ```
 
-You need:
-
-- A **Supabase** project — grab `SUPABASE_URL`, `SUPABASE_KEY` (service role), and `SUPABASE_ANON_KEY` from Project Settings → API.
-- A **Groq** API key from [console.groq.com](https://console.groq.com).
-- (Optional) Google OAuth set up in the Supabase dashboard if you want Google sign-in.
-
-The Streamlit frontend also reads Supabase config from `frontend/.streamlit/secrets.toml`. Copy `secrets.toml.example` to `secrets.toml` and fill it in.
-
-### 4. Run the backend
-
-From the project root:
+Start the backend and the frontend in two terminals:
 
 ```bash
-uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-The API is now at `http://localhost:8000`.
-
-### 5. Run the frontend
-
-In a new terminal (with the venv activated):
-
-```bash
+python -m uvicorn backend.main:app --reload
 streamlit run frontend/streamlit_app.py
 ```
 
-The app opens at `http://localhost:8501`.
+Run the tests:
 
-## Notes for students
+```bash
+pip install pytest
+python -m pytest tests -q
+```
 
-- **Never commit `.env` or `secrets.toml`** — they hold API keys. Both are in `.gitignore`; check before you push.
-- The first run downloads the Sentence Transformer model (~80 MB). It's cached afterwards.
-- If you don't have a Groq key yet, the scoring still works — only the LLM suggestions section will be empty.
-- `jupyter notebooks/` and `ml model/` are for experimentation and aren't required to run the app.
+## API
+
+All routes are under `/api/v1` and require a Supabase access token except `/health`.
+
+| Method | Route | Purpose |
+|---|---|---|
+| POST | `/analyze-resume` | Upload a resume (and optional job description), get the full analysis |
+| GET | `/history` | List the signed-in user's past analyses |
+| DELETE | `/history/{analysis_id}` | Delete one analysis |
+| POST | `/generate-pdf` | Generate a PDF report from an analysis |
+| GET | `/history/{analysis_id}/pdf` | PDF report for a saved analysis |
+| GET | `/health` | Health check |
+
+## Tech stack
+
+Python, FastAPI, Streamlit, Groq (LLM parsing), spaCy, sentence-transformers, RapidFuzz, Supabase (auth and Postgres), Jinja2, WeasyPrint, ReportLab, pdfplumber, python-docx.
+
+## Known limitations
+
+- Grammar checking and location checking are placeholders. They do not currently affect the score.
+- LLM parsing can vary slightly between runs, so the same resume may differ by a few points, mostly in content quality and keywords.
+- The score is a heuristic inspired by how ATS software works. It is not an official score from any specific ATS.
+- Semantic skill matching uses a small embedding model, so skills are mainly validated through exact mentions in projects and experience.
+- The notebooks are exploratory. The live scorer uses `all-MiniLM-L6-v2` and does not load a fine-tuned model.
+
+## Roadmap
+
+- Real grammar and location checks
+- Deterministic action-verb counting so scores are more stable
+- More unit tests for the scoring components
+- Support for more resume languages and layouts

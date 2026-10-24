@@ -1,25 +1,27 @@
 import os
-import json 
+import json
 import logging
 from typing import Dict
 
 from groq import Groq
 
-logger=logging.getLogger('ats_resume_scorer')
+logger = logging.getLogger('ats_resume_scorer')
 
 
 GROQ_MODEL = 'openai/gpt-oss-120b'
-_client=None
+_client = None
 
-def _get_client()->Groq:
+
+def _get_client() -> Groq:
     global _client
     if _client is None:
-        api_key=os.getenv('GROQ_API_KEY')
+        api_key = os.getenv('GROQ_API_KEY')
 
         if not api_key:
             raise ValueError("GROQ_API_KEY environment variable not set")
-        _client=Groq(api_key=api_key)
+        _client = Groq(api_key=api_key)
     return _client
+
 
 RESUME_SYSTEM_PROMPT = (
     "You are a resume parser. Extract information from the resume "
@@ -74,19 +76,24 @@ Important instructions:
 Resume Text:
 {raw_text}"""
 
-def _call_groq(client:Groq, system_prompt:str, user_prompt:str)->str:
 
-    response=client.chat.completions.create(
-        model=GROQ_MODEL, 
+def _call_groq(client: Groq, system_prompt: str, user_prompt: str) -> str:
+
+    response = client.chat.completions.create(
+        model=GROQ_MODEL,
         messages=[
             {'role': 'system', 'content': system_prompt},
             {'role': 'user', 'content': user_prompt}
         ],
         temperature=0.0,
-        max_tokens=4096
+        # Reasoning models spend part of this budget on hidden reasoning tokens,
+        # so keep it generous to avoid truncated JSON.
+        max_tokens=8192
     )
 
-    return response.choices[0].message.content.strip()
+    content = response.choices[0].message.content or ""
+    return content.strip()
+
 
 def _try_parse_json(text: str) -> dict | None:
 
@@ -103,20 +110,25 @@ def _try_parse_json(text: str) -> dict | None:
         cleaned = cleaned.strip()
 
     try:
-        return json.loads(cleaned)
+        parsed = json.loads(cleaned)
     except json.JSONDecodeError:
         return None
-    
-def parse_resume(raw_text: str)->Dict:
 
-    client=_get_client()
-    prompt=RESUME_USER_PROMPT.format(raw_text=raw_text)
-    raw_response=_call_groq(client, RESUME_SYSTEM_PROMPT, prompt)
-    result=_try_parse_json(raw_response)
+    # The validators expect a JSON object, not a list/string/number.
+    return parsed if isinstance(parsed, dict) else None
 
-    if result is None:
+
+def parse_resume(raw_text: str) -> Dict:
+
+    client = _get_client()
+    prompt = RESUME_USER_PROMPT.format(raw_text=raw_text)
+    raw_response = _call_groq(client, RESUME_SYSTEM_PROMPT, prompt)
+    result = _try_parse_json(raw_response)
+
+    # FIX: was `if result is None`, which returned on failure and
+    # retried on success.
+    if result is not None:
         return _validate_resume_result(result)
-    
 
     logger.warning("Groq resume parse: first attempt returned invalid JSON, retrying...")
     strict_prompt = (
@@ -132,7 +144,8 @@ def parse_resume(raw_text: str)->Dict:
     raise ValueError(
         f"Groq returned unparseable response after retry. Raw response:\n{raw_response[:500]}"
     )
-    
+
+
 JD_SYSTEM_PROMPT = (
     "You are a job description parser. Extract information and "
     "return ONLY a valid JSON object. No explanation, no markdown."
@@ -159,6 +172,7 @@ Important instructions:
 Job Description Text:
 {raw_text}"""
 
+
 def parse_job_description(raw_text: str) -> Dict:
     client = _get_client()
     prompt = JD_USER_PROMPT.format(raw_text=raw_text)
@@ -183,9 +197,10 @@ def parse_job_description(raw_text: str) -> Dict:
         f"Groq returned unparseable response after retry. Raw response:\n{raw_response[:500]}"
     )
 
-#it will make sure, that the parse json has all the valid fields we expect
+
+# Makes sure the parsed JD JSON has all the fields we expect.
 def _validate_jd_result(result: dict) -> dict:
-    
+
     defaults = {
         "job_title": "",
         "required_skills": [],
@@ -205,7 +220,7 @@ def _validate_jd_result(result: dict) -> dict:
     return result
 
 
-#to make sure the parse json has all the valid json fields
+# Makes sure the parsed resume JSON has all the fields we expect.
 def _validate_resume_result(result: dict) -> dict:
 
     defaults = {
@@ -226,12 +241,12 @@ def _validate_resume_result(result: dict) -> dict:
     for key, default in defaults.items():
         if key not in result or result[key] is None:
             result[key] = default
-            
+
         # Ensure list fields are actually lists
         if isinstance(default, list) and not isinstance(result[key], list):
             result[key] = default
 
-    #Validate experience entries
+    # Validate experience entries
     for exp in result.get("experience", []):
         if not isinstance(exp, dict):
             continue
@@ -241,20 +256,48 @@ def _validate_resume_result(result: dict) -> dict:
         exp.setdefault("end_date", "")
         exp.setdefault("duration_months", 0)
         exp.setdefault("description", "")
-        #Ensure duration_months is an int
+        # Ensure duration_months is an int
         try:
             exp["duration_months"] = int(exp["duration_months"])
         except (ValueError, TypeError):
             exp["duration_months"] = 0
 
-    #Validate project entries
+    # Validate project entries
     for proj in result.get("projects", []):
         if not isinstance(proj, dict):
             continue
         proj.setdefault("title", "")
         proj.setdefault("description", "")
         proj.setdefault("technologies", [])
+    # Groq sometimes returns null (or a list) for text fields; later code calls
+    # .strip()/.split()/len() on them, so force them to plain strings.
+    def _as_text(value) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, (list, tuple)):
+            return "\n".join(str(v) for v in value)
+        return str(value)
+
+    for exp in result.get("experience", []):
+        if isinstance(exp, dict):
+            for key in ("job_title", "company", "start_date", "end_date", "description"):
+                exp[key] = _as_text(exp.get(key))
+
+    for edu in result.get("education", []):
+        if isinstance(edu, dict):
+            for key in ("degree", "institution", "year"):
+                edu[key] = _as_text(edu.get(key))
+
+    for proj in result.get("projects", []):
+        if isinstance(proj, dict):
+            proj["title"] = _as_text(proj.get("title"))
+            proj["description"] = _as_text(proj.get("description"))
+            tech = proj.get("technologies")
+            proj["technologies"] = [str(t) for t in tech] if isinstance(tech, list) else []
+
+    result["professional_summary"] = _as_text(result.get("professional_summary"))
+    result["skills"] = [str(s) for s in result["skills"] if s]
+    result["keywords"] = [str(k) for k in result["keywords"] if k]
+    result["action_verbs"] = [str(v) for v in result["action_verbs"] if v]
 
     return result
-
-

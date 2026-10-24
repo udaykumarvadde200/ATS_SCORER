@@ -11,10 +11,9 @@ def _read_jd(jd_file, jd_text: str) -> str:
     """
     Turn whatever the user provided into a plain JD string for the backend.
 
-    For .txt files we decode in-process — that's a trivial operation, no need
-    for a backend round-trip. For PDF/DOCX, we'd need the backend's parser;
-    we don't have a public endpoint for that, so we ask the user to paste text
-    instead for non-txt JDs.
+    For .txt files we decode in-process. For PDF/DOCX we'd need the backend's
+    parser; there is no public endpoint for that, so we ask the user to paste
+    text instead for non-txt JDs.
     """
     if jd_text:
         return jd_text.strip()
@@ -36,6 +35,12 @@ def _show_backend_error(exc: Exception) -> None:
     elif isinstance(exc, requests.Timeout):
         st.error("The backend took too long to respond. Try a smaller resume or check the server logs.")
     elif isinstance(exc, requests.HTTPError) and exc.response is not None:
+        if exc.response.status_code == 401:
+            # Access token expired (Supabase tokens last about an hour).
+            for k in ("access_token", "refresh_token", "user_id", "user_email"):
+                st.session_state[k] = None
+            st.error("Your session expired. Please sign in again from the sidebar.")
+            return
         try:
             detail = exc.response.json().get("detail", exc.response.text)
         except ValueError:
@@ -71,8 +76,8 @@ def _render_upload_area(analysis_mode: str):
         st.markdown("### 📄 Upload Resume")
         resume_file = st.file_uploader(
             "Choose your resume file",
-            type=["pdf", "doc", "docx"],
-            help="Supported: PDF, DOC, DOCX (max 5 MB)",
+            type=["pdf", "docx"],
+            help="Supported: PDF, DOCX (max 5 MB)",
             key="resume_upload",
         )
         if resume_file:
@@ -119,7 +124,6 @@ def _render_export_buttons(analysis: dict) -> None:
     c1, c2 = st.columns(2)
 
     with c1:
-        # Lazy: only call the backend the first time the user clicks expand.
         if st.button("📑 Generate PDF Report", use_container_width=True, type="primary"):
             try:
                 with st.spinner("Generating PDF on backend..."):
@@ -180,9 +184,10 @@ def render() -> None:
 
     if not resume_file:
         st.info("👆 Upload your resume to begin.")
-        # If we have a prior result in session, render it again.
-        if st.session_state.get("scorer_analysis"):
+        # Show the previous result (and its export buttons) again on rerun.
+        if st.session_state.get("scorer_analysis") and st.session_state.get("access_token"):
             display_results_dashboard(st.session_state["scorer_analysis"])
+            _render_export_buttons(st.session_state["scorer_analysis"])
         return
 
     access_token = st.session_state.get("access_token")

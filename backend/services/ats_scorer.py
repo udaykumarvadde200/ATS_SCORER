@@ -334,6 +334,13 @@ def calculate_overall_score(
     content_score           = _calc_content_score(text, action_verbs, grammar_results)
     skill_validation_score  = _calc_skill_validation_score(skill_validation_results)
     ats_compatibility_score = _calc_ats_compatibility_score(text, location_results, parsed_resume)
+    # Round each component to a whole number first so the headline score
+    # always equals the sum of the numbers shown in the breakdown.
+    formatting_score        = float(round(formatting_score))
+    keywords_score          = float(round(keywords_score))
+    content_score           = float(round(content_score))
+    skill_validation_score  = float(round(skill_validation_score))
+    ats_compatibility_score = float(round(ats_compatibility_score))
 
     COMPONENT_MAX = {
         'formatting': 20.0, 'keywords': 25.0, 'content': 25.0,

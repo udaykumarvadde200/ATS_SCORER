@@ -40,7 +40,6 @@ def display_overall_score(analysis: Dict[str, Any]) -> None:
             unsafe_allow_html=True,
         )
 
-
 def display_score_breakdown(analysis: Dict[str, Any]) -> None:
     """Five progress bars, one per scoring component."""
     component_scores = analysis.get("component_scores") or {}
@@ -65,3 +64,19 @@ def display_score_breakdown(analysis: Dict[str, Any]) -> None:
             )
             st.markdown(f"**{value:.0f}/{max_score}**")
             st.markdown("")
+
+    # Explain any gap between the five components and the headline score
+    overall = float(analysis.get("ATS_score", analysis.get("ats_score", 0)))
+    component_total = sum(float(component_scores.get(key, 0)) for _, key, _, _ in COMPONENTS)
+    adjustment = round(overall - component_total)
+    if adjustment < 0:
+        st.info(
+            f"The five components add up to {component_total:.0f}. The overall score is "
+            f"{overall:.0f} because of a job description penalty of {abs(adjustment)} points: "
+            "too many of the job description's keywords were not found on your resume."
+        )
+    elif adjustment > 0:
+        st.info(
+            f"The five components add up to {component_total:.0f}. The overall score is "
+            f"{overall:.0f} because of a bonus of {adjustment} points for strong skill validation."
+        )

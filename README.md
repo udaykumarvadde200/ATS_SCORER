@@ -5,8 +5,9 @@ An AI-assisted resume analyzer that scores a resume out of 100 the way an Applic
 **Live demo:** `<your-streamlit-app-url>`  
 **Backend API docs:** `<your-backend-url>/docs`
 
-<!-- Add 1-2 screenshots here: the score breakdown and the JD comparison page. -->
-<!-- ![Score breakdown](docs/score-breakdown.png) -->
+
+![Score breakdown](docs/score-breakdown.png)
+![PDF report](docs/report.png)
 
 ## Features
 

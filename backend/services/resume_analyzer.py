@@ -7,6 +7,7 @@ from backend.services.jd_matcher import compare_resume_with_jd
 from backend.services.feedback_engine import analyze_issues, generate_issues_summary
 from backend.services.ats_scorer import calculate_overall_score, validate_skills_with_projects
 from backend.utils.action_verbs import detect_action_verbs
+from backend.services.bullet_rewriter import find_weak_bullets
 
 def analyze_full_resume(
     resume_text: str,
@@ -143,6 +144,7 @@ def analyze_full_resume(
         "interpretation":    scores.get('overall_interpretation', ''),
         "skill_validation_details": skill_validation_details,
         "experience_months": experience_months,
+        "weak_bullets":      find_weak_bullets(parsed_resume),
     }
 
 

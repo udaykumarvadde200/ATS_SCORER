@@ -6,7 +6,7 @@ import streamlit as st
 from frontend.services import api_client
 from frontend.components.dashboard import display_results_dashboard
 
-
+from frontend.components.bullet_fixer import render_bullet_fixer
 def _read_jd(jd_file, jd_text: str) -> str:
     """
     Turn whatever the user provided into a plain JD string for the backend.
@@ -120,6 +120,7 @@ def _render_upload_area(analysis_mode: str):
 
 
 def _render_export_buttons(analysis: dict) -> None:
+    render_bullet_fixer(analysis, _show_backend_error)
     st.markdown("### 📥 Export Results")
     c1, c2 = st.columns(2)
 

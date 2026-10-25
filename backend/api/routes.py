@@ -4,6 +4,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 
+from pydantic import BaseModel
 from backend.api.auth import get_current_user
 from backend.models.schemas import AnalysisResponse, ComponentScores, JDComparison, SkillValidationDetails
 from backend.utils.file_utils import (
@@ -172,6 +173,8 @@ async def analyze_resume(
         critical_issues=critical_issues,
         suggestions=suggestions,
         warnings=warnings,
+        
+        weak_bullets=result.get('weak_bullets', []),
     )
 
     # Save what the user actually sees, so History and its PDF match the
@@ -280,3 +283,31 @@ async def generate_history_pdf(
     except Exception as e:
         logger.error(f'Failed to generate PDF for history: {e}')
         raise HTTPException(status_code=500, detail=f"Failed to generate PDF: {e}")
+
+
+
+class ImproveBulletsRequest(BaseModel):
+    bullets: List[str]
+
+
+@router.post('/improve-bullets')
+async def improve_bullets(
+    body: ImproveBulletsRequest,
+    user_id: str = Depends(get_current_user),
+):
+    """Rewrite weak resume bullets with the AI service (placeholders, no invented numbers)."""
+    from backend.services.bullet_rewriter import rewrite_bullets
+
+    bullets = [b for b in body.bullets[:10] if isinstance(b, str) and b.strip()]
+    if not bullets:
+        raise HTTPException(status_code=422, detail='No bullets were provided.')
+
+    try:
+        rewrites = await run_in_threadpool(rewrite_bullets, bullets)
+    except Exception as exc:
+        logger.error(f'Bullet rewrite failed: {exc}')
+        raise HTTPException(
+            status_code=502,
+            detail='The AI service could not rewrite the bullets. Please try again.',
+        )
+    return {'rewrites': rewrites}

@@ -82,3 +82,14 @@ def get_history_pdf(analysis_id: str, access_token: str) -> bytes:
     )
     response.raise_for_status()
     return response.content
+
+
+def improve_bullets(bullets: List[str], access_token: str) -> List[Dict[str, Any]]:
+    response = requests.post(
+        f"{_backend_url()}/api/v1/improve-bullets",
+        json={"bullets": bullets},
+        headers=_auth_headers(access_token),
+        timeout=120,
+    )
+    response.raise_for_status()
+    return response.json().get("rewrites", [])

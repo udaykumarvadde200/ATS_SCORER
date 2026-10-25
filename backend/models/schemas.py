@@ -50,4 +50,5 @@ class AnalysisResponse(BaseModel):
     skills: List[str] = []
     jd_comparison: Optional[JDComparison] = None
     warnings: List[str] = []
+    weak_bullets: List[Dict[str, str]] = []
     interpretation: str = ""

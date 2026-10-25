@@ -2,8 +2,7 @@
 
 An AI-assisted resume analyzer that scores a resume out of 100 the way an Applicant Tracking System might, explains where points were lost, compares the resume against a job description, and exports a PDF report.
 
-**Live demo:** `<your-streamlit-app-url>`  
-**Backend API docs:** `<your-backend-url>/docs`
+**Status:** runs locally (see "Run locally" below). Cloud deployment is planned.
 
 
 ![Score breakdown](docs/score-breakdown.png)
@@ -26,6 +25,7 @@ An AI-assisted resume analyzer that scores a resume out of 100 the way an Applic
 - Optional job description comparison: matched and missing keywords, with the score adjusted up or down
 - Detailed feedback with specific issues and prioritized recommendations
 - PDF report export
+- Fix my weak bullets: finds weak bullets in your projects and experience and suggests AI rewrites. Rewrites never invent numbers; missing results appear as [placeholders] to fill in with your real figures
 - Sign-in with Supabase; each user gets a private history of past analyses
 
 ## Architecture
@@ -51,7 +51,7 @@ frontend/
   components/ score display, feedback, recommendations, JD comparison
   services/   API client, Supabase auth client
 jupyter notebooks/   exploratory work (EDA, BERT embeddings, fine-tuning)
-tests/               unit tests for keyword matching
+tests/               unit tests for matching, action verbs and the bullet fixer
 ```
 
 ## How the score is computed
@@ -67,8 +67,8 @@ tests/               unit tests for keyword matching
 Requirements: Python 3.10+.
 
 ```bash
-git clone <your-repo-url>
-cd ai-resume-ats-main
+git clone https://github.com/udaykumarvadde200/ATS_SCORER.git
+cd ATS_SCORER
 python -m venv .venv
 .venv\Scripts\activate        # Windows (use: source .venv/bin/activate on macOS/Linux)
 pip install -r requirements.txt
@@ -116,6 +116,7 @@ All routes are under `/api/v1` and require a Supabase access token except `/heal
 | GET | `/history` | List the signed-in user's past analyses |
 | DELETE | `/history/{analysis_id}` | Delete one analysis |
 | POST | `/generate-pdf` | Generate a PDF report from an analysis |
+| POST | `/improve-bullets` | Rewrite weak bullets with AI suggestions |
 | GET | `/history/{analysis_id}/pdf` | PDF report for a saved analysis |
 | GET | `/health` | Health check |
 
@@ -126,14 +127,16 @@ Python, FastAPI, Streamlit, Groq (LLM parsing), spaCy, sentence-transformers, Ra
 ## Known limitations
 
 - Grammar checking and location checking are placeholders. They do not currently affect the score.
-- LLM parsing can vary slightly between runs, so the same resume may differ by a few points, mostly in content quality and keywords.
+- LLM parsing can vary slightly between runs, so the same resume may differ by a few points, mostly in keywords and skill validation. Action-verb counting is deterministic.
 - The score is a heuristic inspired by how ATS software works. It is not an official score from any specific ATS.
 - Semantic skill matching uses a small embedding model, so skills are mainly validated through exact mentions in projects and experience.
 - The notebooks are exploratory. The live scorer uses `all-MiniLM-L6-v2` and does not load a fine-tuned model.
+- Email confirmation links point to the configured app address, so sign-up links only work on the machine running the app until it is deployed. Google sign-in works.
 
 ## Roadmap
 
 - Real grammar and location checks
-- Deterministic action-verb counting so scores are more stable
+- Cache parsed results so the same resume always returns the same score
 - More unit tests for the scoring components
 - Support for more resume languages and layouts
+- Cloud deployment (needs a host with enough memory for PyTorch and spaCy)

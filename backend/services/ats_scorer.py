@@ -334,6 +334,10 @@ def calculate_overall_score(
     content_score           = _calc_content_score(text, action_verbs, grammar_results)
     skill_validation_score  = _calc_skill_validation_score(skill_validation_results)
     ats_compatibility_score = _calc_ats_compatibility_score(text, location_results, parsed_resume)
+    # Skills that no project or job backs up should not earn full keyword credit.
+    if skills:
+        evidence = float(skill_validation_results.get('validation_percentage', 0.0))
+        keywords_score = keywords_score * (0.5 + 0.5 * evidence)
     # Round each component to a whole number first so the headline score
     # always equals the sum of the numbers shown in the breakdown.
     formatting_score        = float(round(formatting_score))

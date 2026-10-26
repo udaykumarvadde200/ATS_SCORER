@@ -124,6 +124,25 @@ All routes are under `/api/v1` and require a Supabase access token except `/heal
 
 Python, FastAPI, Streamlit, Groq (LLM parsing), spaCy, sentence-transformers, RapidFuzz, Supabase (auth and Postgres), Jinja2, WeasyPrint, ReportLab, pdfplumber, python-docx.
 
+## Evaluation
+
+To check that the score responds to resume quality, I wrote 12 synthetic resumes (fictional people) in four tiers and scored each one twice with the full pipeline (`evaluation/`). The tiers were written from ordinary resume advice, not from the scoring code.
+
+| Tier | Before fix (average) | After fix (average) | After fix (range) |
+|---|---|---|---|
+| Weak | 39.7 | 33.0 | 29-39 |
+| Average | 57.3 | 50.8 | 46.5-54 |
+| Good | 74.0 | 71.0 | 71 |
+| Excellent | 84.0 | 81.3 | 80-84 |
+
+- Using each resume's average score, every resume in a higher tier scored above every resume in the tier below.
+- Repeat runs of the same resume differed by at most 2 points after the fix (10 of 12 resumes were identical).
+- The first evaluation exposed a weakness: a weak resume with 24 unsupported skills scored 50, close to the average tier, because the keywords component only counted skills. Keyword credit is now scaled by how many skills are backed by projects or experience. That resume now scores 39, and the gap between the weak and average tiers widened from 4 to 7.5 points.
+- That resume is still the highest of the weak tier, so a long skills list still earns some credit.
+- The resumes were written by the project author, so this shows the score moves in the expected direction. It does not show agreement with any real ATS.
+
+Reproduce it with `python evaluation/make_resumes.py` and `python evaluation/run_evaluation.py`. The first (baseline) results are saved in `evaluation/results_baseline.md`.
+
 ## Known limitations
 
 - Grammar checking and location checking are placeholders. They do not currently affect the score.

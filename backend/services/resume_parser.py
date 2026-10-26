@@ -235,6 +235,8 @@ def parse_resume_file(file_data: bytes, filename:str)->Tuple[str, dict]:
 
     try:
         text = extract_text(file_data, file_type)
+        import re as _re
+        text = _re.sub(r'\(cid:\d+\)', '\u2022', text)
         log_info(f'Extracted {len(text)} chars from {filename}', context='parse_resume_file')
 
     except FileParsingError:

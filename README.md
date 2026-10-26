@@ -143,6 +143,15 @@ To check that the score responds to resume quality, I wrote 12 synthetic resumes
 
 Reproduce it with `python evaluation/make_resumes.py` and `python evaluation/run_evaluation.py`. The first (baseline) results are saved in `evaluation/results_baseline.md`.
 
+## Design decisions
+
+- **The LLM extracts, rules score.** Groq only turns the resume into structured data. Every point in the score comes from rule-based code, so a result can be explained and tested.
+- **Action verbs are counted from the text, not taken from the LLM.** The LLM's list changed between runs and moved the content score. Counting verbs that start bullets gave identical scores on repeat runs.
+- **The score always adds up.** Components are rounded before they are summed, and any job description penalty or skill bonus is shown on the page and in the PDF, so the headline number never disagrees with the breakdown.
+- **Skills need evidence.** A skill listed but never used in a project or job earns less. The evaluation showed that counting skills alone let a keyword-stuffed resume score near the average tier, so keyword credit is now scaled by how many skills are backed up.
+- **Rewrites never invent results.** The bullet fixer asks for [placeholders] instead of numbers, and the code drops any rewrite that adds a number or an improvement claim the original did not have.
+- **Failures degrade instead of breaking.** PDF export falls back from WeasyPrint to ReportLab, and file parsing has fallback extractors, so the app still works on machines without every system library.
+
 ## Known limitations
 
 - Grammar checking and location checking are placeholders. They do not currently affect the score.

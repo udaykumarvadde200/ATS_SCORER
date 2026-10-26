@@ -3,6 +3,7 @@
 An AI-assisted resume analyzer that scores a resume out of 100 the way an Applicant Tracking System might, explains where points were lost, compares the resume against a job description, and exports a PDF report.
 
 **Status:** runs locally (see "Run locally" below). Cloud deployment is planned.
+**Demo video:** https://youtu.be/gwM7k7aJ19E
 
 
 ![Score breakdown](docs/score-breakdown.png)

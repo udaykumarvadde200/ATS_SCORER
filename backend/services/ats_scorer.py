@@ -278,44 +278,76 @@ def _calc_skill_validation_score(validation_results: Dict) -> float:
     return min(15.0, max(0.0, validation_results.get('validation_score', 0.0)))
 
 #5. ATS COMPATIBILITY SCORE
+# ---------------------------------------------------------------------------
+# ATS compatibility: can a machine read this resume?  (0 to 15)
+# Points are EARNED by passing checks on the raw extracted text.
+# ---------------------------------------------------------------------------
+_HEADING_PATTERNS = {
+    'summary':        r'summary|professional summary|objective|career objective|profile|about me',
+    'experience':     r'experience|work experience|professional experience|employment|employment history|internships?',
+    'education':      r'education|academic background|academics',
+    'skills':         r'skills|technical skills|key skills|core skills|technologies|tech stack',
+    'projects':       r'projects?|personal projects?|academic projects?',
+    'certifications': r'certifications?|certificates|achievements|awards',
+}
+_HEADING_RES = {
+    name: re.compile(rf'^\s*(?:{pattern})\s*:?\s*$', re.IGNORECASE)
+    for name, pattern in _HEADING_PATTERNS.items()
+}
+_EMAIL_RE = re.compile(r'[\w.+-]+@[\w-]+\.[\w.-]+')
+_PHONE_RE = re.compile(r'(?:\+\d{1,3}[\s-]?)?\d[\d\s().-]{8,16}\d')
+_LINK_RE = re.compile(r'linkedin\.com|github\.com', re.IGNORECASE)
+_ARTIFACT_RE = re.compile('[\ufffd\ue000-\uf8ff\x00-\x08\x0b\x0c\x0e-\x1f]')
+_MONTH_YEAR_RE = re.compile(
+    r'\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+(?:19|20)\d{2}\b',
+    re.IGNORECASE)
+_NUMERIC_DATE_RE = re.compile(r'\b(?:0?[1-9]|1[0-2])/(?:19|20)\d{2}\b')
+_YEAR_RANGE_RE = re.compile(r'\b(?:19|20)\d{2}\s*[-\u2013to]+\s*(?:(?:19|20)\d{2}|present|current)\b', re.IGNORECASE)
+
+
 def _calc_ats_compatibility_score(
     text: str,
     location_results: Dict,
     parsed_resume: Dict,
 ) -> float:
+    score = 0.0
 
-    score = 15.0
+    # 1. Enough text came out of the file (0-3). Scanned or image-only PDFs fail here.
+    n = len(text.strip())
+    score += 3.0 if n >= 1500 else 2.0 if n >= 800 else 1.0 if n >= 300 else 0.0
 
-    #dedeuction01
-    score -= location_results.get('penalty_applied', 0.0)
+    # 2. Standard section headings an ATS looks for (0-4).
+    lines = [line for line in text.split('\n') if 0 < len(line.strip()) <= 40]
+    found = sum(1 for rx in _HEADING_RES.values() if any(rx.match(line) for line in lines))
+    score += 4.0 if found >= 4 else float(found)
 
-    #deduction02
-    special_chars = len(re.findall(r'[│┤├┼┴┬╔╗╚╝═║╠╣╦╩╬]', text))
-    if special_chars > 20:    score -= 2.0
-    elif special_chars > 10:  score -= 1.0
-
-    exp_entries  = [e for e in parsed_resume.get('experience', []) if isinstance(e, dict)]
-    edu_entries  = [e for e in parsed_resume.get('education', [])  if isinstance(e, dict)]
-    skills_count = len(parsed_resume.get('skills', []))
-
-    exp_desc_len = sum(len(e.get('description', '')) for e in exp_entries)
-    edu_desc_len = sum(len((e.get('degree') or '') + (e.get('institution') or '')) for e in edu_entries)  # Handle None to prevent string concatenation errors
-
-    #deduction03
-    short_sections = sum([
-        bool(exp_entries) and exp_desc_len < 20,
-        bool(edu_entries) and edu_desc_len < 20,
-        bool(parsed_resume.get('skills')) and skills_count < 2,
-    ])
-    if short_sections >= 2:    score -= 2.0
-    elif short_sections >= 1:  score -= 1.0
-
-    if exp_entries and skills_count > 5:
+    # 3. Contact details are machine-readable (0-3).
+    if _EMAIL_RE.search(text):
+        score += 1.5
+    if any(sum(ch.isdigit() for ch in m.group()) >= 10 for m in _PHONE_RE.finditer(text)):
         score += 1.0
+    if _LINK_RE.search(text):
+        score += 0.5
 
+    # 4. Clean extraction: few broken or private-use characters (0-3).
+    artifacts = len(_ARTIFACT_RE.findall(text))
+    per_1000 = artifacts / max(len(text), 1) * 1000
+    if n >= 300:                                   # nothing to judge in an empty or image-only file
+        score += 3.0 if artifacts == 0 else 2.0 if per_1000 <= 2 else 1.0 if per_1000 <= 5 else 0.0
+
+    # 5. Dates present and written in one style (0-2).
+    month_year = len(_MONTH_YEAR_RE.findall(text))
+    numeric = len(_NUMERIC_DATE_RE.findall(text))
+    ranges = len(_YEAR_RANGE_RE.findall(text))
+    if month_year + numeric + ranges >= 2:
+        score += 1.0
+        if not (month_year and numeric):          # not mixing 'Jun 2024' with '06/2024'
+            score += 1.0
+
+    score -= location_results.get('penalty_applied', 0.0)
     return min(15.0, max(0.0, score))
 
-#Score aggregation and final interpretation
+
 def calculate_overall_score(
     text: str,
     parsed_resume: Dict,

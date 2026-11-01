@@ -3,9 +3,11 @@
 An AI-assisted resume analyzer that scores a resume out of 100 the way an Applicant Tracking System might, explains where points were lost, suggests safer rewrites for weak bullets, compares the resume against a job description, and exports a PDF report.
 
 **Status:** runs locally (see "Run locally" below). Cloud deployment is planned.
+
 **Demo video:** https://youtu.be/gwM7k7aJ19E
 
 ![Score breakdown](docs/score-breakdown.png)
+
 ![PDF report](docs/report.png)
 
 ## Features
@@ -15,12 +17,12 @@ An AI-assisted resume analyzer that scores a resume out of 100 the way an Applic
 - Score out of 100 built from five weighted components:
 
 | Component | Max points | What it checks |
-|---|---|---|
+|---|---:|---|
 | Formatting | 20 | Sections present, contact details, length and structure |
 | Keywords & Skills | 25 | Keyword and skill coverage, matched with fuzzy matching and aliases (for example `ReactJS` = `react`). Credit is scaled by how many skills are backed by projects or experience |
 | Content Quality | 25 | Action verbs (counted from the resume text), quantified achievements, summary quality |
 | Skill Validation | 15 | Whether each listed skill is backed up by a project or job description |
-| ATS Compatibility | 15 | Whether the file can be parsed cleanly by an ATS |
+| ATS Compatibility | 15 | Machine-readability checks on the extracted text: enough text, standard section headings, readable contact details, clean extraction, consistent dates |
 
 - The overall score always equals the sum of the five components plus any adjustment, and every adjustment is explained on the page and in the PDF
 - Optional job description comparison: matched and missing keywords, with the score adjusted up or down
@@ -31,14 +33,14 @@ An AI-assisted resume analyzer that scores a resume out of 100 the way an Applic
 
 ## Architecture
 
-```
- Streamlit frontend  --(HTTPS, JWT)-->  FastAPI backend  --> Groq LLM (resume parsing, bullet rewrites)
- (views, components)                    |                --> spaCy + sentence-transformers (NLP)
-        |                               |                --> Jinja2 + WeasyPrint / ReportLab (PDF)
-        +-- Supabase Auth               +--> Supabase (Postgres) for analysis history
+```text
+Streamlit frontend  --(HTTPS, JWT)-->  FastAPI backend  --> Groq LLM (resume parsing, bullet rewrites)
+(views, components)                         |               --> spaCy + sentence-transformers (NLP)
+     |                                      |               --> Jinja2 + WeasyPrint / ReportLab (PDF)
+     +-- Supabase Auth                      +--> Supabase (Postgres) for analysis history
 ```
 
-```
+```text
 backend/
   api/        routes and JWT auth
   core/       configuration
@@ -69,28 +71,29 @@ jupyter notebooks/   exploratory work (EDA, BERT embeddings, fine-tuning)
 
 After scoring, the app finds bullets in the projects and experience sections that do not start with a strong action verb or show no measurable result. One click asks the LLM for rewrites, and every rewrite is checked before it is shown:
 
-- a rewrite that adds a number which was not in the original bullet is dropped
-- a rewrite that adds an improvement or achievement claim the original never made is dropped
-- missing results appear as [placeholders] such as [X%] or [N users], to be filled in with real figures
+- A rewrite that adds a number which was not in the original bullet is dropped.
+- A rewrite that adds an improvement or achievement claim the original never made is dropped.
+- Missing results appear as [placeholders] such as [X%] or [N users], to be filled in with real figures.
 
 ## Evaluation
 
-To check that the score responds to resume quality, I wrote 12 synthetic resumes (fictional people) in four tiers and scored each one twice with the full pipeline (`evaluation/`). The tiers were written from ordinary resume advice, not from the scoring code.
+To check that the score responds to resume quality, I wrote 12 synthetic resumes (fictional people) in four tiers and scored each one with the full pipeline (`evaluation/`). The tiers were written from ordinary resume advice, not from the scoring code.
 
-| Tier | Before fix (average) | After fix (average) | After fix (range) |
-|---|---|---|---|
-| Weak | 39.7 | 33.0 | 29-39 |
-| Average | 57.3 | 50.8 | 46.5-54 |
-| Good | 74.0 | 71.0 | 71 |
-| Excellent | 84.0 | 81.3 | 80-84 |
+| Tier | First version | After keyword fix | After ATS compatibility rewrite | Range (latest) |
+|---|---:|---:|---:|---:|
+| Weak | 39.7 | 33.0 | 27.3 | 24-34 |
+| Average | 57.3 | 50.8 | 49.0 | 43-53 |
+| Good | 74.0 | 71.0 | 70.0 | 70 |
+| Excellent | 84.0 | 81.3 | 81.3 | 80-84 |
 
-- Using each resume's average score, every resume in a higher tier scored above every resume in the tier below.
-- Repeat runs of the same resume differed by at most 2 points after the fix (10 of 12 resumes were identical).
-- The first evaluation exposed a weakness: a weak resume with 24 unsupported skills scored 50, close to the average tier, because the keywords component only counted skills. Keyword credit is now scaled by how many skills are backed by projects or experience. That resume now scores 39, and the gap between the weak and average tiers widened from 4 to 7.5 points.
-- That resume is still the highest of the weak tier, so a long skills list still earns some credit.
-- The resumes were written by the project author, so this shows the score moves in the expected direction. It does not show agreement with any real ATS.
+- Every resume in a higher tier scored above every resume in the tier below, in all three runs of the benchmark. The gap between the best weak resume and the worst average one grew from 4 points to 9.
+- In the latest run, repeat runs of the same resume were identical for all 12 resumes.
+- The first evaluation exposed two weaknesses. A weak resume with 24 unsupported skills scored 50, close to the average tier, because the keywords component only counted skills; keyword credit is now scaled by how many skills are backed by projects or experience. The ATS compatibility component started at full marks and only subtracted small penalties, so it was 14 or 15 out of 15 for every resume; it now earns points from five checks (enough extractable text, standard section headings, readable contact details, clean extraction, consistent dates).
+- Even after the changes, the keyword-stuffed resume is the highest of the weak tier (34 against 24 for the other two), so a long skills list still earns some credit.
+- The resumes were written by the project author, and I tuned the scoring while looking at the same 12 resumes, so these numbers are optimistic. They show the score moves in the expected direction. They do not show agreement with any real ATS, and a held-out set of new resumes would be the fair next test.
+- In these resumes, even the strongest tier backs most but not all of its listed skills with project or job text, so Skill Validation separates the tiers less cleanly than the other components.
 
-Reproduce it with `python evaluation/make_resumes.py` and `python evaluation/run_evaluation.py`. The first (baseline) results are saved in `evaluation/results_baseline.md`. The script retries when the Groq API rate-limits a request.
+Reproduce it with `python evaluation/make_resumes.py` and `python evaluation/run_evaluation.py`. Earlier results are saved in `evaluation/results_baseline.md` and `evaluation/results_before_ats_compat.md`. The script retries when the Groq API rate-limits a request.
 
 ## Design decisions
 
@@ -116,7 +119,7 @@ python -m spacy download en_core_web_md
 
 Copy `.env.example` to `.env` and fill in your values:
 
-```
+```env
 GROQ_API_KEY=
 SUPABASE_URL=
 SUPABASE_KEY=            # service_role key, backend only
@@ -165,7 +168,7 @@ Python, FastAPI, Streamlit, Groq (LLM parsing and rewrites), spaCy, sentence-tra
 
 ## Known limitations
 
-- Grammar checking and location checking are placeholders. They do not currently affect the score.
+- Grammar and spelling checking is a placeholder and does not affect the score. The location check only flags street addresses and ZIP or PIN codes.
 - LLM parsing can vary slightly between runs, so the same resume may differ by a few points, mostly in keywords and skill validation. Action-verb counting is deterministic.
 - The score is a heuristic inspired by how ATS software works. It is not an official score from any specific ATS.
 - A long skills list that no project backs up still earns some keyword credit.
@@ -176,7 +179,7 @@ Python, FastAPI, Streamlit, Groq (LLM parsing and rewrites), spaCy, sentence-tra
 
 ## Roadmap
 
-- Real grammar and location checks
+- Real grammar checking and broader location checks
 - Cache parsed results so the same resume always returns the same score
 - More unit tests for the scoring components
 - Cloud deployment (needs a host with enough memory for PyTorch and spaCy, or a lighter embedding engine)

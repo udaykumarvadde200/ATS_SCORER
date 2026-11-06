@@ -20,7 +20,7 @@ An AI-assisted resume analyzer that scores a resume out of 100 the way an Applic
 |---|---:|---|
 | Formatting | 20 | Sections present, contact details, length and structure |
 | Keywords & Skills | 25 | Keyword and skill coverage, matched with fuzzy matching and aliases (for example `ReactJS` = `react`). Credit is scaled by how many skills are backed by projects or experience |
-| Content Quality | 25 | Action verbs (counted from the resume text), quantified achievements, summary quality |
+| Content Quality | 25 | Action verbs (counted from the resume text), quantified achievements, spelling (5 points) |
 | Skill Validation | 15 | Whether each listed skill is backed up by a project or job description |
 | ATS Compatibility | 15 | Machine-readability checks on the extracted text: enough text, standard section headings, readable contact details, clean extraction, consistent dates |
 
@@ -77,23 +77,24 @@ After scoring, the app finds bullets in the projects and experience sections tha
 
 ## Evaluation
 
-To check that the score responds to resume quality, I wrote 12 synthetic resumes (fictional people) in four tiers and scored each one with the full pipeline (`evaluation/`). The tiers were written from ordinary resume advice, not from the scoring code.
+To check that the score responds to resume quality, I wrote 12 synthetic resumes (fictional people) in four tiers and scored each one twice with the full pipeline (`evaluation/`). The tiers were written from ordinary resume advice, not from the scoring code.
 
-| Tier | First version | After keyword fix | After ATS compatibility rewrite | Range (latest) |
-|---|---:|---:|---:|---:|
-| Weak | 39.7 | 33.0 | 27.3 | 24-34 |
-| Average | 57.3 | 50.8 | 49.0 | 43-53 |
-| Good | 74.0 | 71.0 | 70.0 | 70 |
-| Excellent | 84.0 | 81.3 | 81.3 | 80-84 |
+| Tier | First version | After keyword fix | After ATS compatibility rewrite | After spelling check | Range (latest) |
+|---|---|---|---|---|---|
+| Weak | 39.7 | 33.0 | 27.3 | 33.3 | 30-40 |
+| Average | 57.3 | 50.8 | 49.0 | 54.8 | 48.5-59 |
+| Good | 74.0 | 71.0 | 70.0 | 75.0 | 74-76 |
+| Excellent | 84.0 | 81.3 | 81.3 | 84.3 | 83-86 |
 
-- Every resume in a higher tier scored above every resume in the tier below, in all three runs of the benchmark. The gap between the best weak resume and the worst average one grew from 4 points to 9.
-- In the latest run, repeat runs of the same resume were identical for all 12 resumes.
+- Every resume in a higher tier scored above every resume in the tier below, in all four runs of the benchmark. The rank correlation between tier and score is 0.97 (24 runs). The gap between the best weak resume and the worst average one was 4 points in the first version and is 8.5 now.
+- In the latest run, 10 of the 12 resumes scored identically on both runs, and the largest difference between two runs of the same resume was 2 points. The remaining variation comes from the keyword and skill lists the language model extracts, which count in steps.
 - The first evaluation exposed two weaknesses. A weak resume with 24 unsupported skills scored 50, close to the average tier, because the keywords component only counted skills; keyword credit is now scaled by how many skills are backed by projects or experience. The ATS compatibility component started at full marks and only subtracted small penalties, so it was 14 or 15 out of 15 for every resume; it now earns points from five checks (enough extractable text, standard section headings, readable contact details, clean extraction, consistent dates).
-- Even after the changes, the keyword-stuffed resume is the highest of the weak tier (34 against 24 for the other two), so a long skills list still earns some credit.
-- The resumes were written by the project author, and I tuned the scoring while looking at the same 12 resumes, so these numbers are optimistic. They show the score moves in the expected direction. They do not show agreement with any real ATS, and a held-out set of new resumes would be the fair next test.
+- Adding the spelling check raised every score by 2 to 7 points, because all 12 test resumes are free of typos. The check is worth 5 of the 25 Content points, plus a 1 point bonus for zero errors. I chose 5 and not 10 so that clean spelling alone does not hand a weak resume a large share of the Content score.
+- Even after the changes, the keyword-stuffed resume is the highest of the weak tier (40 against 30 for the other two), so a long skills list still earns some credit.
+- The resumes were written by the project author, and I tuned the scoring while looking at the same 12 resumes, so these numbers are optimistic. They show the score moves in the expected direction. They do not show agreement with any real ATS, and a held-out set of new resumes, including some with deliberate typos, would be the fair next test.
 - In these resumes, even the strongest tier backs most but not all of its listed skills with project or job text, so Skill Validation separates the tiers less cleanly than the other components.
 
-Reproduce it with `python evaluation/make_resumes.py` and `python evaluation/run_evaluation.py`. Earlier results are saved in `evaluation/results_baseline.md` and `evaluation/results_before_ats_compat.md`. The script retries when the Groq API rate-limits a request.
+Reproduce it with `python evaluation/make_resumes.py` and `python evaluation/run_evaluation.py`. Earlier results are saved in `evaluation/` (`results_baseline.md`, `results_before_ats_compat.md`, `results_before_spelling.md`). The script retries when the Groq API rate-limits a request.
 
 ## Design decisions
 
@@ -168,7 +169,7 @@ Python, FastAPI, Streamlit, Groq (LLM parsing and rewrites), spaCy, sentence-tra
 
 ## Known limitations
 
-- Grammar and spelling checking is a placeholder and does not affect the score. The location check only flags street addresses and ZIP or PIN codes.
+- The writing check is a spelling check, not a full grammar check. It skips capitalized words, acronyms and technical terms to avoid flagging names and technologies, so it can miss typos in those. The location check only flags street addresses and ZIP or PIN codes.
 - LLM parsing can vary slightly between runs, so the same resume may differ by a few points, mostly in keywords and skill validation. Action-verb counting is deterministic.
 - The score is a heuristic inspired by how ATS software works. It is not an official score from any specific ATS.
 - A long skills list that no project backs up still earns some keyword credit.

@@ -9,6 +9,7 @@ inside <div> and <span> tags, so the fallback walks the whole document and
 keeps the text of every block, not just <h1>-<h4>, <p> and <li>.
 """
 
+from backend.utils.timing import timed
 import io
 import logging
 from xml.sax.saxutils import escape
@@ -260,6 +261,7 @@ def _render_with_reportlab(html_docs: dict[str, str]) -> bytes:
 # Public API (same signature as before)
 # ---------------------------------------------------------------------------
 
+@timed('pdf_export')
 def generate_combined_pdf(html_docs: dict[str, str]) -> bytes:
     """Generate one PDF from multiple HTML report sections."""
     if not html_docs:

@@ -1,3 +1,4 @@
+from backend.utils.timing import timed
 from typing import List, Dict
 import numpy as np
 import spacy
@@ -89,6 +90,7 @@ def calculate_match_percentage(
     return float(np.clip(match_pct, 0.0, 100.0))
 
 
+@timed('jd_compare')
 def compare_resume_with_jd(
     resume_text: str,
     resume_keywords: List[str],

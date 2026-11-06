@@ -1,3 +1,4 @@
+from backend.utils.timing import timed
 import re
 import spacy
 import numpy as np
@@ -29,6 +30,7 @@ def _tier_score(n: float, tiers:list)-> float:
     return 0.0
 
 #Location/privacy detection
+@timed('location_check')
 def detect_location_info(text: str, nlp: spacy.Language) -> Dict:
     locations = []
 
@@ -121,6 +123,7 @@ def _skill_matches(skill: str, text: str, embedder: SentenceTransformer, thresho
     return sim >= threshold, sim
 
 #Skill validation
+@timed('skill_validation')
 def validate_skills_with_projects(
     skills: List[str],
     projects: List[Dict],
@@ -128,7 +131,7 @@ def validate_skills_with_projects(
     embedder: SentenceTransformer,
     threshold: float = 0.6,
 ) -> Dict:
-    
+    skills = [str(s).strip() for s in (skills or []) if s and str(s).strip()]
     if not skills:
         return {
             'validated_skills':      [],
@@ -140,51 +143,71 @@ def validate_skills_with_projects(
 
     experience_text = ' '.join(
         f"{e.get('job_title', '')} {e.get('company', '')} {e.get('description', '')}"
-        for e in experience_entries
+        for e in (experience_entries or [])
         if isinstance(e, dict)
     ).strip()
 
-    validated_skills      = []
-    unvalidated_skills    = []
-    skill_project_mapping = {}
+    # (label, text) for every place a skill can be backed up
+    sources = []
+    for project in (projects or []):
+        if not isinstance(project, dict):
+            continue
+        label = project.get('title') or 'Untitled Project'
+        tech = project.get('technologies') or []
+        if not isinstance(tech, list):
+            tech = [tech]
+        tech_text = ' '.join(str(t) for t in tech)
+        text = f"{project.get('title', '')} {project.get('description', '')} {tech_text}".strip()
+        if text:
+            sources.append((label, text))
+    if experience_text:
+        sources.append(('Experience Section', experience_text))
 
-    for skill in skills:
-        matching_projects = []
-        max_similarity    = 0.0
+    # Embed every skill and every source once (two batches) instead of once per pair
+    skill_vecs = src_vecs = None
+    if sources:
+        try:
+            skill_vecs = embedder.encode(skills, convert_to_numpy=True, normalize_embeddings=True)
+            src_vecs = embedder.encode(
+                [t for _, t in sources], convert_to_numpy=True, normalize_embeddings=True
+            )
+        except Exception as e:
+            log_warning(f'Embedding failed, using exact matches only: {e}', context='ats_scorer')
+            skill_vecs = src_vecs = None
 
-        for project in projects:
-            project_text = f"{project.get('title', '')} {project.get('description', '')}"
-            matched, sim = _skill_matches(skill, project_text, embedder, threshold)
-            max_similarity = max(max_similarity, sim)
+    validated_skills, unvalidated_skills, skill_project_mapping = [], [], {}
 
-            if matched:
-                matching_projects.append(project.get('title', 'Untitled Project'))
+    for i, skill in enumerate(skills):
+        matching, max_sim = [], 0.0
+        for j, (label, text) in enumerate(sources):
+            if _skill_in_text(skill, text):
+                matched, sim = True, 1.0
+            elif len(skill) <= 2 or skill_vecs is None:
+                matched, sim = False, 0.0
+            else:
+                sim = float(np.clip(np.dot(skill_vecs[i], src_vecs[j]), 0.0, 1.0))
+                matched = sim >= threshold
+            max_sim = max(max_sim, sim)
+            if matched and label not in matching:
+                matching.append(label)
 
-        if experience_text:
-            matched, sim = _skill_matches(skill, experience_text, embedder, threshold)
-            max_similarity = max(max_similarity, sim)
-            if matched and 'Experience Section' not in matching_projects:
-                matching_projects.append('Experience Section')
-
-        if matching_projects:
-            validated_skills.append({'skill': skill, 'projects': matching_projects, 'similarity': max_similarity})
-            skill_project_mapping[skill] = matching_projects
+        if matching:
+            validated_skills.append({'skill': skill, 'projects': matching, 'similarity': max_sim})
+            skill_project_mapping[skill] = matching
         else:
             unvalidated_skills.append(skill)
             skill_project_mapping[skill] = []
 
     validation_percentage = len(validated_skills) / len(skills)
-    validation_score      = validation_percentage * 15.0
-
     return {
         'validated_skills':      validated_skills,
         'unvalidated_skills':    unvalidated_skills,
         'validation_percentage': validation_percentage,
         'skill_project_mapping': skill_project_mapping,
-        'validation_score':      validation_score,
+        'validation_score':      validation_percentage * 15.0,
     }
 
-#01: formatting score
+
 def _calc_formatting_score(parsed_resume: Dict, text: str) -> float:
 
     score = 0.0
@@ -264,12 +287,12 @@ def _calc_content_score(
     score += _tier_score(achievement_count, [(10,5.0),(7,4.0),(5,3.0),(3,2.0),(1,1.0)])
 
     if grammar_results.get('_component_status') == 'unavailable':
-        # No grammar checker is wired up, so don't hand out 10 free points.
-        # Rescale the 15 points we can actually measure to the full 25.
+        # No spelling check ran: rescale the 15 measurable points to the full 25.
         score = score * 25.0 / 15.0
     else:
+        # Spelling is worth 5 points; the other 15 measurable points are rescaled to 20.
         grammar_penalty = grammar_results.get('penalty_applied', 0.0)
-        score += max(0.0, 10.0 - grammar_penalty / 2.0)
+        score = score * 20.0 / 15.0 + max(0.0, 5.0 - grammar_penalty / 4.0)
 
     return min(25.0, max(0.0, score))
 
@@ -348,6 +371,7 @@ def _calc_ats_compatibility_score(
     return min(15.0, max(0.0, score))
 
 
+@timed('scoring')
 def calculate_overall_score(
     text: str,
     parsed_resume: Dict,

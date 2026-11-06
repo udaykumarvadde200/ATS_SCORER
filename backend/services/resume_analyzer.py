@@ -1,3 +1,4 @@
+from backend.utils.timing import timed
 import spacy
 from sentence_transformers import SentenceTransformer
 from typing import Dict, List, Optional
@@ -6,9 +7,11 @@ from backend.services.groq_parser import parse_resume, parse_job_description
 from backend.services.jd_matcher import compare_resume_with_jd
 from backend.services.feedback_engine import analyze_issues, generate_issues_summary
 from backend.services.ats_scorer import calculate_overall_score, validate_skills_with_projects, detect_location_info
+from backend.services.grammar_checker import check_grammar
 from backend.utils.action_verbs import detect_action_verbs
 from backend.services.bullet_rewriter import find_weak_bullets
 
+@timed('analyze_total', summary=True)
 def analyze_full_resume(
     resume_text: str,
     nlp: spacy.Language,
@@ -69,7 +72,11 @@ def analyze_full_resume(
     from backend.utils.file_utils import (
         get_default_grammar_results, get_default_location_results,
     )
-    grammar_results  = get_default_grammar_results()
+    try:
+        grammar_results = check_grammar(resume_text, parsed_resume)
+    except Exception as exc:
+        logger.warning(f'Spelling check failed, using defaults: {exc}')
+        grammar_results = get_default_grammar_results()
     try:
         location_results = detect_location_info(resume_text, nlp)
         # A few city names in a resume are normal; only a street address or ZIP/PIN code is a privacy problem.

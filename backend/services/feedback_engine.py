@@ -1,9 +1,11 @@
 #what is specifically wrong in my resume?
 
+from backend.utils.timing import timed
 import re
 from typing import List, Dict, Any, Optional
 from backend.models.schemas import IssueDetail
 
+@timed('feedback_issues')
 def analyze_issues(
         resume_text: str, 
         parsed_resume: Dict, 

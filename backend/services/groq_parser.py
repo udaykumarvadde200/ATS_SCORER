@@ -1,3 +1,4 @@
+from backend.utils.timing import timed
 import os
 import json
 import logging
@@ -79,6 +80,7 @@ Resume Text:
 {raw_text}"""
 
 
+@timed('groq_api_call')
 def _call_groq(client: Groq, system_prompt: str, user_prompt: str) -> str:
 
     response = client.chat.completions.create(
@@ -120,6 +122,7 @@ def _try_parse_json(text: str) -> dict | None:
     return parsed if isinstance(parsed, dict) else None
 
 
+@timed('groq_parse')
 def parse_resume(raw_text: str) -> Dict:
 
     client = _get_client()
@@ -175,6 +178,7 @@ Job Description Text:
 {raw_text}"""
 
 
+@timed('jd_parse')
 def parse_job_description(raw_text: str) -> Dict:
     client = _get_client()
     prompt = JD_USER_PROMPT.format(raw_text=raw_text)

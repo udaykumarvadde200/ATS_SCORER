@@ -234,12 +234,11 @@ async def generate_pdf(
     user_id: str = Depends(get_current_user),
 ):
     from backend.services.report_generator import generate_html_reports
-    from backend.services.pdf_export import generate_combined_pdf
+    from backend.services.report_pdf import build_report_pdf
     from fastapi.responses import Response
 
     try:
-        html_docs = generate_html_reports(data.model_dump())
-        pdf_bytes = await run_in_threadpool(generate_combined_pdf, html_docs)
+        pdf_bytes = await run_in_threadpool(build_report_pdf, data.model_dump())
 
         return Response(
             content=pdf_bytes,
@@ -260,7 +259,7 @@ async def generate_history_pdf(
 ):
     from backend.database.supabase_db import get_user_history
     from backend.services.report_generator import generate_html_reports
-    from backend.services.pdf_export import generate_combined_pdf
+    from backend.services.report_pdf import build_report_pdf
     from fastapi.responses import Response
 
     history = await get_user_history(user_id)
@@ -270,8 +269,7 @@ async def generate_history_pdf(
         raise HTTPException(status_code=404, detail="Analysis not found")
 
     try:
-        html_docs = generate_html_reports(analysis_data)
-        pdf_bytes = await run_in_threadpool(generate_combined_pdf, html_docs)
+        pdf_bytes = await run_in_threadpool(build_report_pdf, analysis_data)
 
         return Response(
             content=pdf_bytes,

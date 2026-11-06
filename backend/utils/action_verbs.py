@@ -40,6 +40,7 @@ enhance establish evaluate execute implement improve integrate maintain manage m
 organize perform provide reduce refactor resolve streamline troubleshoot write developing building designing implementing creating managing optimizing analyzing automating deploying
 integrating improving reducing streamlining collaborating evaluating delivering maintaining architecting
 orchestrating migrating refactoring
+applied ingested indexed parsed scraped labeled annotated tokenized profiled packaged curated loaded experimented gathered summarized investigated
 """.split())
 
 _BULLET_GLYPHS = re.compile("[\u2022\u25cf\u25aa\u25e6\u2023\u00b7\uf0b7\uf0a7]")

@@ -99,3 +99,7 @@ if __name__=='__main__':
         port    = 8000,
         reload  = True,    # Auto-restart on code changes (dev only)
     )
+
+# Log every request with its status and duration.
+from backend.utils.timing import install_request_timing
+install_request_timing(app)

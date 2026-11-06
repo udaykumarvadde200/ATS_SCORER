@@ -10,9 +10,16 @@ from frontend.services import api_client
 _STATE_KEY = "bullet_rewrites"
 
 
+def _show_text(text: str) -> None:
+    """A copyable text box that wraps long lines (older Streamlit versions cannot wrap)."""
+    try:
+        st.code(text, language=None, wrap_lines=True)
+    except TypeError:
+        st.code(text, language=None)
+
+
 def render_bullet_fixer(analysis: Dict[str, Any], on_error: Callable[[Exception], None]) -> None:
-    """Show the weak bullets found in the resume and offer AI rewrites."""
-    
+    """Show the weak bullets found in the resume and offer AI suggestions."""
     if "weak_bullets" not in analysis:
         st.info("Run the analysis again to get bullet suggestions.")
         return
@@ -33,7 +40,7 @@ def render_bullet_fixer(analysis: Dict[str, Any], on_error: Callable[[Exception]
 
     for item in weak:
         st.markdown(f"**{item.get('source', 'Resume')}** - {item.get('issues', '')}")
-        st.code(item["bullet"], language=None)
+        _show_text(item["bullet"])
 
     if st.button("Rewrite these with AI", type="primary", key="bullet_fixer_button"):
         try:
@@ -50,18 +57,26 @@ def render_bullet_fixer(analysis: Dict[str, Any], on_error: Callable[[Exception]
     if not saved or saved.get("for") != bullets:
         return
 
-    rewrites = saved.get("rewrites") or []
-    if not rewrites:
-        st.info("The AI could not improve these bullets safely. Try rewriting them by hand.")
+    suggestions = saved.get("rewrites") or []
+    if not suggestions:
+        st.info("The AI had no safe improvement for these bullets. Try adding a real result by hand.")
         return
 
-    st.markdown("#### Suggested rewrites")
-    st.warning(
-        "Replace every [placeholder] with a real number from your own work before you use "
-        "a rewrite. Do not keep a figure you cannot back up."
-    )
-    for item in rewrites:
+    st.markdown("#### Suggestions")
+    if any("[" in (s.get("rewrite") or "") for s in suggestions):
+        st.warning(
+            "Replace every [placeholder] with a real number from your own work before you use "
+            "a rewrite. Do not keep a figure you cannot back up."
+        )
+    for item in suggestions:
         st.caption(f"Before: {item.get('original', '')}")
-        st.code(item.get("rewrite", ""), language=None)
-        if item.get("note"):
-            st.caption(item["note"])
+        rewrite = item.get("rewrite")
+        if rewrite:
+            _show_text(rewrite)
+            if item.get("note"):
+                st.caption(item["note"])
+        else:
+            st.caption("Your wording is already fine. What it lacks is a result.")
+        ideas = item.get("ideas") or []
+        if ideas:
+            st.markdown("**What you could measure:** " + "; ".join(ideas))

@@ -1,3 +1,4 @@
+from backend.utils.timing import timed
 import io
 import magic
 from typing import Tuple, Optional, Tuple
@@ -212,6 +213,7 @@ def extract_text(file_data:bytes, file_type:str)->str:
 
         )
     
+@timed('parse_file')
 def parse_resume_file(file_data: bytes, filename:str)->Tuple[str, dict]:
     log_info(f'parsing file :{filename}', context='parse_Resume_file')
 

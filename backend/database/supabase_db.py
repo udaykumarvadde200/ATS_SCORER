@@ -1,3 +1,4 @@
+from backend.utils.timing import timed
 import logging
 import httpx
 import json
@@ -18,6 +19,7 @@ def _get_headers():
         "Prefer": "return=representation"
     }
 
+@timed('save_history')
 async def save_analysis(user_id: str, filename: str, analysis_result: Dict) -> Optional[str]:
     headers = _get_headers()
     if not headers:
@@ -55,6 +57,7 @@ async def save_analysis(user_id: str, filename: str, analysis_result: Dict) -> O
         logger.error(f"Failed to save analysis to Supabase: {exc}")
         return None
 
+@timed('load_history')
 async def get_user_history(user_id: str) -> List[Dict]:
     headers = _get_headers()
     if not headers:
